@@ -1,7 +1,5 @@
-library(raster)
+library(terra)
 
-
-#install.packages('sdm')
 
 #clear away all variables
 rm(list= ls())
@@ -9,9 +7,10 @@ gc()
 
 
 
-#Author: Mickaël Vasquez
-#Version: 20210427_01
-#Date: 27/04/2021
+#Author: Mickael Vasquez
+#Version: 20230405_01
+#Date: 05/04/2023
+#N.B.: main update compared to previous version: the use of terra package instead of raster package
 #For one or several habitat classification, creation of the habitat confidence layer, which is the the combination of the individual habitat descriptor confidence layers
 #For each cell, the minimum confidence of the input confidence layers is kept
 #For the individual habitat classifications, the confidence layers of individual habitat descriptor that are involved in the classification
@@ -22,15 +21,14 @@ gc()
 
 
 #-------------------------- script parametrisation ---------------------------------------------------
-#chunk size and max memory to load for processings
-chunksize<-1e+09
-maxmemory<-1e+09
+#max memory to use (in GBytes)
+maxmemory<-20
 
 #working directory
-workingDirectory<-"E:/travail/EUSeaMap4/WP1/modeling/script_publication/hands_on_dataset/partialBoB"
+workingDirectory<-"E:/travail/euseamap_phase5/WP1/modeling/models/Atlantic_SE"
 
 #the config csv file that describes all the bits that have to be merged
-config_csvFileName<-"habitat_calculating_habitat_confidence.csv"
+config_csvFileName<-"Atlantic_SE_habitat_calculating_habitat_confidence.csv"
 
 
 #-----------------------------------------------------------------------------------------------------
@@ -86,10 +84,9 @@ if (!file.exists("temp")){
   
 }
 
-#set raster options (most important are chunksize and maxmemory)
-rasterOptions(tmpdir=paste(getwd(),"/temp",sep=""),progress="text",format="GTiff",
-              chunksize=chunksize,
-              maxmemory=maxmemory)
+#set terra options (most important is memmax)
+terraOptions(tempdir=paste(getwd(),"/temp",sep=""),progress=10,
+             memmax=maxmemory)
 
 suppressWarnings(checkList<-check_Inputs())
 hasError<-checkList[[1]]
@@ -107,21 +104,21 @@ if (! hasError) {
     filesToCombine<-file.path (habitat_map_units_to_be_merged$folder,habitat_map_units_to_be_merged$confidence_fileName)
     
     if (length(filesToCombine) > 1) {
-      rastersToCombine<-stack(filesToCombine)
-      final_confidence_raster<-min(rastersToCombine)
+      rastersToCombine<-rast(filesToCombine)
+      final_confidence_raster<-min(rastersToCombine,na.rm=TRUE)
     } else {
       #in case the habitat map comprises one habitat descriptor only (not the case currently, but one day maybe...)
-      final_confidence_raster<-raster(filesToCombine[1])
+      final_confidence_raster<-rast(filesToCombine[1])
     }
-    writeRaster(final_confidence_raster,file.path("output",sprintf("%s_confidence_overall",habitatMapNames[i])),
+    writeRaster(final_confidence_raster,file.path("output",sprintf("%s_confidence_overall.tif",habitatMapNames[i])),
                 datatype='INT1U',overwrite=TRUE)
     
     rm(final_confidence_raster,rastersToCombine)
+    #remove all tmp file created by the terra package
+    tmpFiles(remove=T)
   
   }
   
-  #remove all tmp file created by the raster package while overlaying ou writing chunk by chunk
-  file.remove(Sys.glob(file.path("temp", "r_tmp*")))
   end <- Sys.time()
   print (paste("Completed in",difftime(end,start),"!"))
 } else print (checkList[[2]])

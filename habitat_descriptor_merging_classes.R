@@ -1,7 +1,5 @@
-library(raster)
+library(terra)
 
-
-#install.packages('sdm')
 
 #clear away all variables
 rm(list= ls())
@@ -9,9 +7,11 @@ gc()
 
 
 
-#Author: Mickaël Vasquez
-#Version: 20210423_01
-#Date: 23/04/2021
+#Author: Mickael Vasquez
+#Version: 20230414_01
+#Date: 14/04/2023
+#N.B.: main update compared to previous version: the use of terra package instead of raster package
+# 14/04/2023: a bug was corrected
 #Creation of habitat descriptor layers according to a set of inputs (all described in a standardised csv configuration file)
 #For each habitat descriptor class , the csv file provides the following
 #   - The name of the habitat descriptor to which the class is attached
@@ -36,12 +36,11 @@ gc()
 
 
 #-------------------------- script parametrisation ---------------------------------------------------
-#chunk size and max memory to load for processings
-chunksize<-1e+09
-maxmemory<-1e+09
+#max memory to use (in GBytes)
+maxmemory<-20
 
 #working directory
-workingDirectory<-"E:/travail/EUSeaMap4/WP1/modeling/script_publication/hands_on_dataset/partialBoB"
+workingDirectory<-"E:/travail/euseamap_phase5/WP1/modeling/models/Caribbean"
 
 #the config csv file that describes all the bits that have to be merged
 config_csvFileName<-"habitat_descriptor_merging_inputs.csv"
@@ -101,6 +100,9 @@ check_Inputs<-function () {
       
       for (j in 1:length(columnsToCheck)) {
         file<-units_to_be_merged[[columnsToCheck[j]]][i]
+        #if no file indicated, continue
+        if (file=="") next
+        
         if (!file.exists(file.path(folder,file))) {
           msg<-sprintf("script aborted: file %s, indicated in the column %s of the csv file, does not exist in folder %s",
                        file,
@@ -127,42 +129,46 @@ merge_habitat_descriptor_units<-function(units_to_be_merged,habitatDescriptorSho
   lst_confidence_in_threshold_raster_to_merge<-list()
   lst_combined_confidence_raster_to_merge<-list()
   lst_proba_raster_to_merge<-list()
-  cpt<-0
   for (i in 1:number_of_units) {
     folderName<-units_to_be_merged[i,"folder"]
     if (output_habitat_descriptor_raster) {
       fileName<-units_to_be_merged[i,"class_fileName"]
-      if (!file.exists(file.path(folderName,fileName))){
-        print(paste("No file",fileName,"in",folderName))
+      if (fileName!="") {
+        if (!file.exists(file.path(folderName,fileName))){
+          print(paste("No file",fileName,"in",folderName))
+        }
+        rst<-rast(file.path(folderName,fileName))
+        lst_class_raster_to_merge[[length(lst_class_raster_to_merge)+1]]<-rst
       }
-      rst<-raster(file.path(folderName,fileName))
-      lst_class_raster_to_merge[[i]]<-rst
     }
     if (output_confidence_based_on_proba) {
       fileName<-units_to_be_merged[i,"based_on_proba_confidence_fileName"]
-      if (!file.exists(file.path(folderName,fileName))){
-        print(paste("No file",fileName,"in",folderName))
+      if (fileName!="") {
+        if (!file.exists(file.path(folderName,fileName))){
+          print(paste("No file",fileName,"in",folderName))
+        }
+        rst<-rast(file.path(folderName,fileName))
+        lst_confidence_in_threshold_raster_to_merge[[length(lst_confidence_in_threshold_raster_to_merge)+1]]<-rst
       }
-      rst<-raster(file.path(folderName,fileName))
-      lst_confidence_in_threshold_raster_to_merge[[i]]<-rst
     } 
     if (output_overall_confidence) {
       fileName<-units_to_be_merged[i,"overall_confidence_fileName"]
-      if (!file.exists(file.path(folderName,fileName))){
-        print(paste("No file",fileName,"in",folderName))
+      if (fileName!="") {
+        if (!file.exists(file.path(folderName,fileName))){
+          print(paste("No file",fileName,"in",folderName))
+        }
+        rst<-rast(file.path(folderName,fileName))
+        lst_combined_confidence_raster_to_merge[[length(lst_combined_confidence_raster_to_merge)+1]]<-rst
       }
-      rst<-raster(file.path(folderName,fileName))
-      lst_combined_confidence_raster_to_merge[[i]]<-rst
     } 
     if (output_probability_raster) {
-      probafileName<-units_to_be_merged[i,"proba_fileName"]
-      if (probafileName!="") {
-        cpt<-cpt+1
-        if (!file.exists(file.path(folderName,probafileName))){
-          print(paste("No file",probafileName,"in",folderName))
+      fileName<-units_to_be_merged[i,"proba_fileName"]
+      if (fileName!="") {
+        if (!file.exists(file.path(folderName,fileName))){
+          print(paste("No file",fileName,"in",folderName))
         }
-        rst<-raster(file.path(folderName,probafileName))
-        lst_proba_raster_to_merge[[cpt]]<-rst
+        rst<-rast(file.path(folderName,fileName))
+        lst_proba_raster_to_merge[[length(lst_proba_raster_to_merge)+1]]<-rst
       }
     }
   }
@@ -170,7 +176,9 @@ merge_habitat_descriptor_units<-function(units_to_be_merged,habitatDescriptorSho
   if (output_habitat_descriptor_raster) {
     print ("   Merging class files")
     raster_merged_units <- do.call(merge, lst_class_raster_to_merge)
-    writeRaster(raster_merged_units,file.path("output",paste(habitatDescriptorShortName,".tif",sep="")),datatype='INT1U',overwrite=TRUE)
+    outFile<-sprintf("%s.tif",habitatDescriptorShortName)
+    print (sprintf("   writing %s",outFile))
+    writeRaster(raster_merged_units,file.path("output",outFile),datatype='INT1U',overwrite=TRUE)
     rm(raster_merged_units,lst_class_raster_to_merge)
     gc()
   }
@@ -178,7 +186,9 @@ merge_habitat_descriptor_units<-function(units_to_be_merged,habitatDescriptorSho
   if (output_confidence_based_on_proba) {
     print ("   Merging confidence based on probability")
     raster_merged_units <- do.call(merge, lst_confidence_in_threshold_raster_to_merge)
-    writeRaster(raster_merged_units,file.path("output",paste(habitatDescriptorShortName,"_confidence_based_on_proba.tif",sep="")),datatype='INT1U',overwrite=TRUE)
+    outFile<-sprintf("%s_confidence_based_on_proba.tif",habitatDescriptorShortName)
+    print (sprintf("   writing %s",outFile))
+    writeRaster(raster_merged_units,file.path("output",outFile),datatype='INT1U',overwrite=TRUE)
     rm(raster_merged_units,lst_confidence_in_threshold_raster_to_merge)
     gc()
   }
@@ -186,7 +196,9 @@ merge_habitat_descriptor_units<-function(units_to_be_merged,habitatDescriptorSho
   if (output_overall_confidence) {
     print ("   Merging overall confidence files")
     raster_merged_units <- do.call(merge, lst_combined_confidence_raster_to_merge)
-    writeRaster(raster_merged_units,file.path("output",paste(habitatDescriptorShortName,"_confidence_overall.tif",sep="")),datatype='INT1U',overwrite=TRUE)
+    outFile<-sprintf("%s_confidence_overall.tif",habitatDescriptorShortName)
+    print (sprintf("   writing %s",outFile))
+    writeRaster(raster_merged_units,file.path("output",outFile),datatype='INT1U',overwrite=TRUE)
     rm(raster_merged_units,lst_combined_confidence_raster_to_merge)
     gc()
   }
@@ -199,11 +211,13 @@ merge_habitat_descriptor_units<-function(units_to_be_merged,habitatDescriptorSho
       if (number_of_proba_rasters>1) {
         for (i in 2:length(lst_proba_raster_to_merge)) {
           r<-lst_proba_raster_to_merge[[i]]
-          raster_proba<-overlay(raster_proba,r,
-                                fun=function(r1,r2){ifelse(r1>r2,r1,r2)})
+          raster_proba<-lapp(sds(raster_proba,r),
+                             fun=function(r1,r2){ifelse(r1>r2,r1,r2)})
         }
       }
-      writeRaster(raster_proba,file.path("output",paste(habitatDescriptorShortName,"_proba.tif",sep="")),overwrite=TRUE)
+      outFile<-sprintf("%s_proba.tif",habitatDescriptorShortName)
+      print (sprintf("   writing %s",outFile))
+      writeRaster(raster_proba,file.path("output",outFile),datatype='FLT4S',overwrite=TRUE)
       rm(raster_proba,lst_proba_raster_to_merge)
       gc()
     }
@@ -217,6 +231,9 @@ start <- Sys.time()
 
 setwd(workingDirectory)
 
+if (!file.exists("output")){
+  dir.create("output")
+}
 
 #temp folder will be used by R if requires to create temp files
 if (!file.exists("temp")){
@@ -224,10 +241,9 @@ if (!file.exists("temp")){
   
 }
 
-#set raster options (most important are chunksize and maxmemory)
-rasterOptions(tmpdir=paste(getwd(),"/temp",sep=""),progress="text",format="GTiff",
-              chunksize=chunksize,
-              maxmemory=maxmemory)
+#set terra options (most important is memmax)
+terraOptions(tempdir=paste(getwd(),"/temp",sep=""),progress=10,
+             memmax=maxmemory)
 
 
 
@@ -247,9 +263,10 @@ if (! hasError) {
     habitatDescriptorShortName<-habitatDescriptorShortNames[i]
     print(paste("Merging",habitatDescriptorShortName,"..."))
     merge_habitat_descriptor_units (units_to_be_merged,habitatDescriptorShortName)
+    #remove all tmp file created by the terra package
+    tmpFiles(remove=T)
   }
-  #remove all tmp file created by the raster package while overlaying ou writing chunk by chunk
-  file.remove(Sys.glob(file.path("temp", "r_tmp*")))
+  
   end <- Sys.time()
   print (paste("Completed in",difftime(end,start),"!"))
 } else print (checkList[[2]])
